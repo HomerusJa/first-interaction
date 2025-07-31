@@ -34768,42 +34768,79 @@ const Octokit = Octokit$1.plugin(requestLog, legacyRestEndpointMethods, paginate
 
 async function run() {
     coreExports.info('Running actions/first-interaction!');
-    // Skip if this is not an issue or PR event.
+    // Skip if this is not an issue, PR, or discussion event.
     if (githubExports.context.eventName !== 'issues' &&
-        githubExports.context.eventName !== 'pull_request')
-        return coreExports.info('Skipping...Not an Issue/PR Event');
-    // Skip if this is not an issue/PR open event.
-    if (githubExports.context.action !== 'opened')
-        return coreExports.info('Skipping...Not an Opened Event');
+        githubExports.context.eventName !== 'pull_request' &&
+        githubExports.context.eventName !== 'discussion')
+        return coreExports.info('Skipping...Not an Issue/PR/Discussion Event');
+    // Skip if this is not an issue/PR open event or discussion created event.
+    if ((githubExports.context.eventName === 'discussion' &&
+        githubExports.context.action !== 'created') ||
+        ((githubExports.context.eventName === 'issues' ||
+            githubExports.context.eventName === 'pull_request') &&
+            githubExports.context.action !== 'opened'))
+        return coreExports.info('Skipping...Not an Opened/Created Event');
     // Confirm the sender data is present.
     if (!githubExports.context.payload.sender)
         return coreExports.setFailed('Internal Error...No Sender Provided by GitHub');
-    // Check if this is an issue or PR event.
+    // Check if this is an issue, PR, or discussion event.
     const isIssue = githubExports.context.payload.issue !== undefined;
     const isPullRequest = githubExports.context.payload.pull_request !== undefined;
-    // Confirm that only one of the two is present.
-    if (!isIssue && !isPullRequest)
-        return coreExports.setFailed('Internal Error...No Issue or PR Provided by GitHub');
-    if (isIssue && isPullRequest)
-        return coreExports.setFailed('Internal Error...Both Issue and PR Provided by GitHub');
+    const isDiscussion = githubExports.context.payload.discussion !== undefined;
+    // Confirm that exactly one of the three is present.
+    const eventCount = [isIssue, isPullRequest, isDiscussion].filter(Boolean).length;
+    if (eventCount === 0)
+        return coreExports.setFailed('Internal Error...No Issue, PR, or Discussion Provided by GitHub');
+    if (eventCount > 1)
+        return coreExports.setFailed('Internal Error...Multiple Event Types Provided by GitHub');
     // Get the action inputs.
     const issueMessage = coreExports.getInput('issue_message', {
-        required: true
+        required: !isDiscussion && !isPullRequest
     });
-    const prMessage = coreExports.getInput('pr_message', { required: true });
+    const prMessage = coreExports.getInput('pr_message', {
+        required: !isDiscussion && !isIssue
+    });
+    const discussionMessage = coreExports.getInput('discussion_message', {
+        required: !isIssue && !isPullRequest
+    });
     const octokit = new Octokit({
         auth: coreExports.getInput('repo_token', { required: true })
     });
     // Check if this is the user's first contribution.
-    if (!(await isFirstIssue(octokit)) && !(await isFirstPullRequest(octokit)))
+    const isFirstContribution = (isIssue && (await isFirstIssue(octokit))) ||
+        (isPullRequest && (await isFirstPullRequest(octokit))) ||
+        (isDiscussion && (await isFirstDiscussion(octokit)));
+    if (!isFirstContribution)
         return coreExports.info('Skipping...Not First Contribution');
-    coreExports.info(`Adding Message to #${githubExports.context.issue.number}`);
-    await octokit.rest.issues.createComment({
-        owner: githubExports.context.repo.owner,
-        repo: githubExports.context.repo.repo,
-        issue_number: githubExports.context.issue.number,
-        body: isIssue ? issueMessage : prMessage
-    });
+    // Get the appropriate message and target number for comment
+    let message;
+    let targetNumber;
+    if (isIssue) {
+        message = issueMessage;
+        targetNumber = githubExports.context.issue.number;
+    }
+    else if (isPullRequest) {
+        message = prMessage;
+        targetNumber = githubExports.context.issue.number;
+    }
+    else {
+        message = discussionMessage;
+        targetNumber = githubExports.context.payload.discussion.number;
+    }
+    coreExports.info(`Adding Message to #${targetNumber}`);
+    if (isDiscussion) {
+        // For discussions, we need to use the GraphQL API
+        await createDiscussionComment(octokit, targetNumber, message);
+    }
+    else {
+        // For issues and PRs, use the existing REST API
+        await octokit.rest.issues.createComment({
+            owner: githubExports.context.repo.owner,
+            repo: githubExports.context.repo.repo,
+            issue_number: targetNumber,
+            body: message
+        });
+    }
 }
 /**
  * Checks if this is the user's first issue.
@@ -34852,6 +34889,91 @@ async function isFirstPullRequest(octokit) {
     catch (error) {
         coreExports.setFailed(error.message);
         return false;
+    }
+}
+/**
+ * Checks if this is the user's first discussion.
+ *
+ * @param octokit Octokit instance
+ * @returns true if this is the user's first discussion
+ */
+async function isFirstDiscussion(octokit) {
+    try {
+        const currentDiscussionNumber = githubExports.context.payload.discussion.number;
+        const authorLogin = githubExports.context.payload.sender.login;
+        // Use GraphQL to fetch discussions created by this user in this repository
+        const query = `
+      query($owner: String!, $repo: String!, $author: String!, $first: Int!) {
+        repository(owner: $owner, name: $repo) {
+          discussions(first: $first, filterBy: { createdBy: $author }) {
+            nodes {
+              number
+            }
+          }
+        }
+      }
+    `;
+        const variables = {
+            owner: githubExports.context.repo.owner,
+            repo: githubExports.context.repo.repo,
+            author: authorLogin,
+            first: 100 // Fetch up to 100 discussions to check
+        };
+        const response = await octokit.graphql(query, variables);
+        const discussions = response.repository.discussions.nodes;
+        // Check if there are any discussions by this user with a lower number
+        const olderDiscussions = discussions.filter((discussion) => discussion.number < currentDiscussionNumber);
+        return olderDiscussions.length === 0;
+    }
+    catch (error) {
+        coreExports.setFailed(error.message);
+        return false;
+    }
+}
+/**
+ * Creates a comment on a discussion using GraphQL API.
+ *
+ * @param octokit Octokit instance
+ * @param discussionNumber Discussion number
+ * @param body Comment body
+ */
+async function createDiscussionComment(octokit, discussionNumber, body) {
+    try {
+        // First, get the discussion ID using the discussion number
+        const getDiscussionQuery = `
+      query($owner: String!, $repo: String!, $number: Int!) {
+        repository(owner: $owner, name: $repo) {
+          discussion(number: $number) {
+            id
+          }
+        }
+      }
+    `;
+        const getDiscussionVariables = {
+            owner: githubExports.context.repo.owner,
+            repo: githubExports.context.repo.repo,
+            number: discussionNumber
+        };
+        const discussionResponse = await octokit.graphql(getDiscussionQuery, getDiscussionVariables);
+        const discussionId = discussionResponse.repository.discussion.id;
+        // Now create the comment
+        const addCommentMutation = `
+      mutation($discussionId: ID!, $body: String!) {
+        addDiscussionComment(input: { discussionId: $discussionId, body: $body }) {
+          comment {
+            id
+          }
+        }
+      }
+    `;
+        const addCommentVariables = {
+            discussionId,
+            body
+        };
+        await octokit.graphql(addCommentMutation, addCommentVariables);
+    }
+    catch (error) {
+        coreExports.setFailed(error.message);
     }
 }
 

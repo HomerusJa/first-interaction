@@ -15,6 +15,9 @@ export const context = {
     pull_request: {
       number: 10
     },
+    discussion: {
+      number: 10
+    },
     sender: {
       login: 'mona'
     }
