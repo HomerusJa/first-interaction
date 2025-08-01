@@ -5,6 +5,11 @@ import { Octokit } from '@octokit/rest'
 export async function run() {
   core.info('Running actions/first-interaction!')
 
+  // Debug logging
+  core.info(`Event Name: ${github.context.eventName}`)
+  core.info(`Action (context): ${github.context.action}`)
+  core.info(`Action (payload): ${github.context.payload.action}`)
+
   // Skip if this is not an issue, PR, or discussion event.
   if (
     github.context.eventName !== 'issues' &&

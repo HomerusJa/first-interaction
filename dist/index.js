@@ -34768,6 +34768,10 @@ const Octokit = Octokit$1.plugin(requestLog, legacyRestEndpointMethods, paginate
 
 async function run() {
     coreExports.info('Running actions/first-interaction!');
+    // Debug logging
+    coreExports.info(`Event Name: ${githubExports.context.eventName}`);
+    coreExports.info(`Action (context): ${githubExports.context.action}`);
+    coreExports.info(`Action (payload): ${githubExports.context.payload.action}`);
     // Skip if this is not an issue, PR, or discussion event.
     if (githubExports.context.eventName !== 'issues' &&
         githubExports.context.eventName !== 'pull_request' &&
