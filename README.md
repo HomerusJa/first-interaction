@@ -45,15 +45,15 @@ jobs:
     steps:
       - uses: actions/first-interaction@vX.Y.Z # Set this to the latest release
         with:
-          issue-message: |
+          issue_message: |
             # Issue Message with Markdown
 
             This is the message that will be displayed!
-          pr-message: |
+          pr_message: |
             # PR Message with Markdown
 
             This is the message that will be displayed!
-          discussion-message: |
+          discussion_message: |
             # Discussion Message with Markdown
 
             This is the message that will be displayed!
