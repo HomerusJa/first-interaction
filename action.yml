@@ -7,6 +7,8 @@ inputs:
     description: Comment to post on an individual's first issue
   pr_message:
     description: Comment to post on an individual's first pull request
+  discussion_message:
+    description: Comment to post on an individual's first discussion
   repo_token:
     description: Token with permissions to post issue and PR comments
     required: true

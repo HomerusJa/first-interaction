@@ -6,11 +6,11 @@
 [![CodeQL](https://github.com/actions/first-interaction/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/actions/first-interaction/actions/workflows/codeql-analysis.yml)
 [![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
 
-An action for filtering pull requests (PRs) and issues from first-time
-contributors.
+An action for filtering pull requests (PRs), issues, and discussions from
+first-time contributors.
 
-When a first-time contributor opens a PR or issue, this action will add a
-comment to the PR or issue with a message of your choice. This action is useful
+When a first-time contributor opens a PR, issue, or starts a discussion, this
+action will add a comment with a message of your choice. This action is useful
 for welcoming first-time contributors to your project and providing them with
 information about how to contribute effectively.
 
@@ -28,10 +28,14 @@ on:
   issues:
     types:
       - opened
+  discussion:
+    types:
+      - created
 
 permissions:
   issues: write
   pull-requests: write
+  discussions: write
 
 jobs:
   greeting:
@@ -41,12 +45,16 @@ jobs:
     steps:
       - uses: actions/first-interaction@vX.Y.Z # Set this to the latest release
         with:
-          issue-message: |
+          issue_message: |
             # Issue Message with Markdown
 
             This is the message that will be displayed!
-          pr-message: |
+          pr_message: |
             # PR Message with Markdown
+
+            This is the message that will be displayed!
+          discussion_message: |
+            # Discussion Message with Markdown
 
             This is the message that will be displayed!
 ```
